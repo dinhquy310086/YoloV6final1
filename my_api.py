@@ -1,43 +1,20 @@
-from flask import Flask
-from flask_cors import CORS, cross_origin
-from flask import request
-import os
-import my_yolov6
-import cv2
+FROM python:3
 
-# Khởi tạo Flask Server Backend
-app = Flask(__name__)
+#Allow statements and log messages to immediately appear in the Knative logs
+ENV PYTHONUNBUFFERED True
 
-# Apply Flask CORS
-CORS(app)
-app.config['CORS_HEADERS'] = 'Content-Type'
-app.config['UPLOAD_FOLDER'] = "static"
+#Copy local code to the container image.
+ENV APP_HOME /app
+WORKDIR $APP_HOME
+COPY . ./
 
-yolov6_model = my_yolov6.my_yolov6("weights/fire_detect.pt", "cpu", "data/mydataset.yaml", 640, False)
+#Install production dependencies.
+RUN pip install -r requirements.txt
+RUN pip install gunicorn
 
-@app.route('/', methods=['POST'] )
-def predict_yolov6():
-    image = request.files['file']
-    if image:
-        # Lưu file
-        path_to_save = os.path.join(app.config['UPLOAD_FOLDER'], image.filename)
-        print("Save = ", path_to_save)
-        image.save(path_to_save)
-
-        frame = cv2.imread(path_to_save)
-
-        # Nhận diên qua model Yolov6
-        frame, no_object = yolov6_model.infer(frame)
-
-        if no_object >0:
-            cv2.imwrite(path_to_save, frame)
-
-        del frame
-        # Trả về đường dẫn tới file ảnh đã bounding box
-        return path_to_save # http://server.com/static/path_to_save
-
-    return 'Upload file to detect'
-
-# Start Backend
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port='6868')
+#Run the web service on container startup. Here we use the gunicorn
+#webserver, with one worker process and 8 threads.
+#For environments with multiple CPU cores, increase the number of workers
+#to be equal to the cores available.
+#Timeout is set to 0 to disable the timeouts of the workers to allow Cloud Run to handle instance scaling.
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 comfort:app
